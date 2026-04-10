@@ -704,6 +704,113 @@ class GenerationWithReasonORM(ORM):
         return rewards
 orms['external_generation_with_reason_reward'] = GenerationWithReasonORM
 
+
+class GRITReportReward(ORM):
+    """GRIT-style report reward based on the RadCliQ composite metric."""
+
+    def __init__(self):
+        self.metric = CompositeMetric()
+        self.temp_list = []
+        self.max_len = 1000
+
+    @staticmethod
+    def _extract_boxed_answer(text):
+        pattern = r'(?s)(.*?)\\boxed{([^}]*)}'
+        match = re.search(pattern, text or '')
+        if match:
+            reason = match.group(1).strip() if match.group(1) else None
+            answer = match.group(2).strip() if match.group(2) else None
+            return reason, answer
+        boxed_only = re.search(r'\\boxed{([^}]*)}', text or '')
+        if boxed_only:
+            return None, boxed_only.group(1).strip()
+        text = (text or '').strip()
+        return (text if text else None), None
+
+    def __call__(self, infer_requests: List[Union['InferRequest', Dict]], **kwargs) -> List[float]:
+        ground_truths = kwargs['solution']
+        task_names = kwargs.get('task_name', [''] * len(infer_requests))
+        rewards = []
+        for prediction, ground_truth, task_name in zip(infer_requests, ground_truths, task_names):
+            _, prediction_boxed = self._extract_boxed_answer(prediction)
+            if 'Impression Generation' in task_name or 'Findings Generation' in task_name:
+                if prediction_boxed:
+                    reward = float(self.metric.predict(refs=[ground_truth], hyps=[prediction_boxed])[0])
+                else:
+                    reward = 0.0
+                self.temp_list.append(reward)
+                if len(self.temp_list) > self.max_len:
+                    self.temp_list.pop(0)
+            else:
+                reward = sum(self.temp_list) / len(self.temp_list) if self.temp_list else 0.0
+            rewards.append(reward)
+        return rewards
+
+
+class UniRGReportReward(ORM):
+    """UniRG-style reward using report quality proxy from ROUGE-1."""
+
+    def __init__(self):
+        self.metric = CompositeMetric()
+        self.temp_list = []
+        self.max_len = 1000
+
+    @staticmethod
+    def _extract_boxed_answer(text):
+        match = re.search(r'\\boxed{([^}]*)}', text or '')
+        if match:
+            return match.group(1).strip()
+        text = (text or '').strip()
+        return text if text else None
+
+    def __call__(self, infer_requests: List[Union['InferRequest', Dict]], **kwargs) -> List[float]:
+        ground_truths = kwargs['solution']
+        task_names = kwargs.get('task_name', [''] * len(infer_requests))
+        rewards = []
+        for prediction, ground_truth, task_name in zip(infer_requests, ground_truths, task_names):
+            prediction_text = self._extract_boxed_answer(prediction)
+            if 'Impression Generation' in task_name or 'Findings Generation' in task_name:
+                if prediction_text:
+                    reward = float(self.metric.predict_rouge1(refs=[ground_truth], hyps=[prediction_text])[0])
+                else:
+                    reward = 0.0
+                self.temp_list.append(reward)
+                if len(self.temp_list) > self.max_len:
+                    self.temp_list.pop(0)
+            else:
+                reward = sum(self.temp_list) / len(self.temp_list) if self.temp_list else 0.0
+            rewards.append(reward)
+        return rewards
+
+
+class GRPOGRReward(ORM):
+    """Combine UniRG + GRIT rewards for GRPO-GR."""
+
+    def __init__(self):
+        self.unirg = UniRGReportReward()
+        self.grit = GRITReportReward()
+        self.unirg_weight = float(os.getenv('UNIRG_WEIGHT', 0.5))
+        self.grit_weight = float(os.getenv('GRIT_WEIGHT', 0.5))
+        total = self.unirg_weight + self.grit_weight
+        if total <= 0:
+            self.unirg_weight, self.grit_weight = 0.5, 0.5
+        else:
+            self.unirg_weight /= total
+            self.grit_weight /= total
+
+    def __call__(self, infer_requests: List[Union['InferRequest', Dict]], **kwargs) -> List[float]:
+        unirg_scores = self.unirg(infer_requests, **kwargs)
+        grit_scores = self.grit(infer_requests, **kwargs)
+        return [
+            self.unirg_weight * u + self.grit_weight * g
+            for u, g in zip(unirg_scores, grit_scores)
+        ]
+
+
+orms['external_grit_reward'] = GRITReportReward
+orms['external_unirg_reward'] = UniRGReportReward
+orms['external_grpo_gr_reward'] = GRPOGRReward
+
 class Format_boxed(ORM):
 
     def __call__(self, completions, **kwargs) -> List[float]:

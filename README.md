@@ -219,6 +219,21 @@ See: [`examples/train/chexone/train_script/2_grpo.sh`](examples/train/chexone/tr
 
 This step further optimizes the model with the GRPO algorithm to improve reasoning capabilities and robustness.
 
+### 4. GRPO-GR with UniRG + GRIT across multi-dataset CXR data
+
+For GRPO-GR training using **MIMIC-CXR**, **CheXpert-Plus**, **RexGradient-160K**, **PadChest-GR**, and **VinDr-CXR**, use:
+
+[`examples/train/chexone/train_script/3_grpo_gr_multidataset.sh`](examples/train/chexone/train_script/3_grpo_gr_multidataset.sh)
+
+The script uses external reward functions:
+
+- `external_unirg_reward`
+- `external_grit_reward`
+- `external_grpo_gr_reward` (weighted UniRG+GRIT)
+
+All three are registered in:
+[`examples/train/grpo/plugin/plugin.py`](examples/train/grpo/plugin/plugin.py)
+
 
 ## 🧪 Inference
 
