@@ -244,6 +244,19 @@ The script uses external reward functions:
 All three are registered in:
 [`examples/train/grpo/plugin/plugin.py`](examples/train/grpo/plugin/plugin.py)
 
+### 5. GRIT format-only training (+ optional counting/IoU/GIoU rewards)
+
+If you want GRIT reward to be **format-only** by default, and keep counting/IoU/GIoU as optional add-ons, use:
+
+[`examples/train/chexone/train_script/4_grit_format_optional_rewards.sh`](examples/train/chexone/train_script/4_grit_format_optional_rewards.sh)
+
+In the plugin, the reward funcs are:
+
+- `external_grit_format_reward` (default GRIT reward)
+- `external_grit_counting_reward` (optional)
+- `external_grit_iou_reward` (optional, requires `bboxs` in dataset)
+- `external_grit_giou_reward` (optional, requires `bboxs` in dataset)
+
 
 ## 🧪 Inference
 
