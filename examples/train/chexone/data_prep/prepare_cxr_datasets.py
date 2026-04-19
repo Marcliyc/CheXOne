@@ -74,8 +74,14 @@ def _to_sample(image_path: str, solution: str, dataset_name: str, task_name: str
 
 
 def _find_target_text(row: pd.Series, task: str) -> Optional[str]:
-    findings_candidates = ['findings', 'finding', 'report_findings', 'cxr_findings', 'label_findings']
-    impression_candidates = ['impression', 'report_impression', 'cxr_impression', 'label_impression']
+    findings_candidates = [
+        'findings', 'finding', 'Findings', 'FINDINGS', 'report_findings', 'findings_text', 'findings_section',
+        'cxr_findings', 'label_findings'
+    ]
+    impression_candidates = [
+        'impression', 'Impression', 'IMPRESSION', 'report_impression', 'impression_text', 'impression_section',
+        'cxr_impression', 'label_impression'
+    ]
     generic_candidates = ['report', 'report_text', 'text', 'answer', 'target', 'solution']
     if task == 'findings':
         text = _first_existing(row, findings_candidates + generic_candidates)
@@ -84,14 +90,22 @@ def _find_target_text(row: pd.Series, task: str) -> Optional[str]:
     return _clean_text(text)
 
 
-def _resolve_rex_image_path(row: pd.Series, data_root: Path, mimic_jpg_root: Optional[Path]) -> Optional[str]:
+def _resolve_rex_image_path(row: pd.Series, data_root: Path, mimic_jpg_root: Optional[Path],
+                            rex_image_root: Optional[Path]) -> Optional[str]:
     direct = _first_existing(
         row,
-        ['image_path', 'image', 'path', 'img_path', 'jpg_path', 'dicom_path', 'filepath', 'file_path'])
+        [
+            'image_path', 'image', 'path', 'img_path', 'jpg_path', 'png_path', 'dicom_path', 'filepath', 'file_path',
+            'image_file', 'image_filename'
+        ])
     if direct:
         p = Path(direct)
         if p.is_absolute() and p.exists():
             return str(p)
+        if rex_image_root is not None:
+            rex_candidate = (rex_image_root / p).resolve()
+            if rex_candidate.exists():
+                return str(rex_candidate)
         candidate = (data_root / p).resolve()
         if candidate.exists():
             return str(candidate)
@@ -120,8 +134,10 @@ def prepare_rex(args: argparse.Namespace) -> List[Dict]:
         if text is None:
             continue
         image_path = _resolve_rex_image_path(
-            row=row, data_root=Path(args.data_root), mimic_jpg_root=Path(args.mimic_jpg_root)
-            if args.mimic_jpg_root else None)
+            row=row,
+            data_root=Path(args.data_root),
+            mimic_jpg_root=Path(args.mimic_jpg_root) if args.mimic_jpg_root else None,
+            rex_image_root=Path(args.rex_image_root) if args.rex_image_root else None)
         if image_path is None:
             continue
         samples.append(_to_sample(image_path, text, 'ReXGradient-160K', task_name, args.with_reasoning))
@@ -131,13 +147,21 @@ def prepare_rex(args: argparse.Namespace) -> List[Dict]:
 def _build_mimic_image_path(mimic_jpg_root: Path, subject_id, study_id, dicom_id) -> Path:
     subject_num = str(subject_id).replace('p', '')
     study_num = str(study_id).replace('s', '')
-    return mimic_jpg_root / 'files' / f'p{subject_num[:2]}' / f'p{subject_num}' / f's{study_num}' / f'{dicom_id}.jpg'
+    base = mimic_jpg_root
+    if (mimic_jpg_root / '2.1.0').exists():
+        base = mimic_jpg_root / '2.1.0'
+    files_root = base / 'files' if (base / 'files').exists() else base
+    return files_root / f'p{subject_num[:2]}' / f'p{subject_num}' / f's{study_num}' / f'{dicom_id}.jpg'
 
 
 def _read_mimic_report(reports_root: Path, subject_id, study_id, task: str) -> Optional[str]:
     subject_num = str(subject_id).replace('p', '')
     study_num = str(study_id).replace('s', '')
-    report_path = reports_root / f'p{subject_num[:2]}' / f'p{subject_num}' / f's{study_num}.txt'
+    base = reports_root
+    if (reports_root / '2.1.0').exists():
+        base = reports_root / '2.1.0'
+    files_root = base / 'files' if (base / 'files').exists() else base
+    report_path = files_root / f'p{subject_num[:2]}' / f'p{subject_num}' / f's{study_num}.txt'
     if not report_path.exists():
         return None
     txt = report_path.read_text(encoding='utf-8', errors='ignore')
@@ -178,6 +202,8 @@ def prepare_mimic(args: argparse.Namespace) -> List[Dict]:
     samples: List[Dict] = []
     mimic_jpg_root = Path(args.mimic_jpg_root)
     reports_root = Path(args.mimic_reports_root)
+    missing_img = 0
+    missing_txt = 0
     for _, row in metadata.iterrows():
         dicom_id = _first_existing(row, ['dicom_id'])
         subject_id = _first_existing(row, ['subject_id'])
@@ -186,11 +212,14 @@ def prepare_mimic(args: argparse.Namespace) -> List[Dict]:
             continue
         image_path = _build_mimic_image_path(mimic_jpg_root, subject_id, study_id, dicom_id)
         if not image_path.exists():
+            missing_img += 1
             continue
         text = _read_mimic_report(reports_root, subject_id, study_id, args.task)
         if text is None:
+            missing_txt += 1
             continue
         samples.append(_to_sample(str(image_path.resolve()), text, 'MIMIC-CXR', task_name, args.with_reasoning))
+    print(f'[prepare-mimic] skipped_missing_image={missing_img}, skipped_missing_report={missing_txt}')
     return samples
 
 
@@ -212,13 +241,14 @@ def main() -> None:
 
     parser.add_argument('--prepare-mimic', action='store_true')
     parser.add_argument('--mimic-jpg-root', type=str, default='data/mimic-cxr-jpg')
-    parser.add_argument('--mimic-metadata', type=str, default='data/mimic-cxr-jpg/mimic-cxr-2.0.0-metadata.csv.gz')
-    parser.add_argument('--mimic-split', type=str, default='data/mimic-cxr-jpg/mimic-cxr-2.0.0-split.csv.gz')
+    parser.add_argument('--mimic-metadata', type=str, default='data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-metadata.csv.gz')
+    parser.add_argument('--mimic-split', type=str, default='data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-split.csv.gz')
     parser.add_argument('--split', choices=['train', 'validate', 'test'], default='train')
     parser.add_argument('--mimic-reports-root', type=str, default='data/mimic-cxr')
 
     parser.add_argument('--prepare-rex', action='store_true')
-    parser.add_argument('--rex-table', type=str, default='data/ReXGradient-160K/train.parquet')
+    parser.add_argument('--rex-table', type=str, default='data/ReXGradient-160K/metadata/train_metadata.csv')
+    parser.add_argument('--rex-image-root', type=str, default='data/ReXGradient-160K/deid_png')
 
     args = parser.parse_args()
     random.seed(args.seed)

@@ -30,13 +30,14 @@ python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
   --prepare-mimic \
   --task findings \
   --mimic-jpg-root data/mimic-cxr-jpg \
-  --mimic-metadata data/mimic-cxr-jpg/mimic-cxr-2.0.0-metadata.csv.gz \
-  --mimic-split data/mimic-cxr-jpg/mimic-cxr-2.0.0-split.csv.gz \
+  --mimic-metadata data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-metadata.csv.gz \
+  --mimic-split data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-split.csv.gz \
   --mimic-reports-root data/mimic-cxr \
   --data-root data
 ```
 
-> Note: `mimic-cxr-jpg` provides images/metadata; report text is read from `--mimic-reports-root` (from MIMIC-CXR report files).
+> Note: `mimic-cxr-jpg` provides images/metadata; report text is read from `--mimic-reports-root` (from MIMIC-CXR report files).  
+> The script handles both `<root>/files/...` and `<root>/2.1.0/files/...` layouts.
 
 ### 2) Prepare ReXGradient-160K only
 
@@ -44,7 +45,8 @@ python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
 python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
   --prepare-rex \
   --task findings \
-  --rex-table data/ReXGradient-160K/train.parquet \
+  --rex-table data/ReXGradient-160K/metadata/train_metadata.csv \
+  --rex-image-root data/ReXGradient-160K/deid_png \
   --mimic-jpg-root data/mimic-cxr-jpg \
   --data-root data
 ```
@@ -58,10 +60,11 @@ python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
   --prepare-mimic \
   --prepare-rex \
   --task findings \
-  --rex-table data/ReXGradient-160K/train.parquet \
+  --rex-table data/ReXGradient-160K/metadata/train_metadata.csv \
+  --rex-image-root data/ReXGradient-160K/deid_png \
   --mimic-jpg-root data/mimic-cxr-jpg \
-  --mimic-metadata data/mimic-cxr-jpg/mimic-cxr-2.0.0-metadata.csv.gz \
-  --mimic-split data/mimic-cxr-jpg/mimic-cxr-2.0.0-split.csv.gz \
+  --mimic-metadata data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-metadata.csv.gz \
+  --mimic-split data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-split.csv.gz \
   --mimic-reports-root data/mimic-cxr \
   --output-prefix chexone_mix \
   --max-samples-per-dataset 50000 \
