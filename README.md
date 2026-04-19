@@ -195,6 +195,16 @@ print(output_text)
   - [📊 CheXinstruct-v2](链接A)
   - [🧠 CheXReason](链接B)
 
+### Preparing local MIMIC-CXR / ReXGradient-160K for SWIFT training
+
+If you already downloaded raw datasets under `data/`, use:
+
+[`examples/train/chexone/data_prep/prepare_cxr_datasets.py`](examples/train/chexone/data_prep/prepare_cxr_datasets.py)
+
+Usage details and examples are in:
+
+[`examples/train/chexone/data_prep/README.md`](examples/train/chexone/data_prep/README.md)
+
 ## 🏋️ Train
 
 ### 1. Instruction Tuning
