@@ -29,15 +29,16 @@ Each output row contains:
 python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
   --prepare-mimic \
   --task findings \
-  --mimic-jpg-root data/mimic-cxr-jpg \
-  --mimic-metadata data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-metadata.csv.gz \
-  --mimic-split data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-split.csv.gz \
-  --mimic-reports-root data/mimic-cxr \
+  --mimic-jpg-root data/MIMIC-CXR \
+  --mimic-metadata data/MIMIC-CXR/mimic-cxr-2.1.0-metadata.csv.gz \
+  --mimic-split data/MIMIC-CXR/mimic-cxr-2.1.0-split.csv.gz \
+  --mimic-reports-root data/MIMIC-CXR \
   --data-root data
 ```
 
 > Note: `mimic-cxr-jpg` provides images/metadata; report text is read from `--mimic-reports-root` (from MIMIC-CXR report files).  
 > The script handles both `<root>/files/...` and `<root>/2.1.0/files/...` layouts.
+> It also handles your shown structure such as `images/mimic-cxr-jpg-2.1.0/mimic-cxr-jpg-2.1.0.physionet.org/files/...`.
 
 ### 2) Prepare ReXGradient-160K only
 
@@ -45,13 +46,14 @@ python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
 python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
   --prepare-rex \
   --task findings \
-  --rex-table data/ReXGradient-160K/metadata/train_metadata.csv \
-  --rex-image-root data/ReXGradient-160K/deid_png \
-  --mimic-jpg-root data/mimic-cxr-jpg \
+  --rex-table data/ReXGradient/metadata/train_metadata.csv \
+  --rex-image-root data/ReXGradient/deid_png \
+  --mimic-jpg-root data/MIMIC-CXR \
   --data-root data
 ```
 
 The script can read `parquet`, `csv`, `csv.gz`, `json`, or `jsonl` for `--rex-table`.
+If `deid_png` has not been extracted yet (only `deid_png.part*` exists), extract it first.
 
 ### 3) Prepare and merge both
 
@@ -60,12 +62,12 @@ python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
   --prepare-mimic \
   --prepare-rex \
   --task findings \
-  --rex-table data/ReXGradient-160K/metadata/train_metadata.csv \
-  --rex-image-root data/ReXGradient-160K/deid_png \
-  --mimic-jpg-root data/mimic-cxr-jpg \
-  --mimic-metadata data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-metadata.csv.gz \
-  --mimic-split data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-split.csv.gz \
-  --mimic-reports-root data/mimic-cxr \
+  --rex-table data/ReXGradient/metadata/train_metadata.csv \
+  --rex-image-root data/ReXGradient/deid_png \
+  --mimic-jpg-root data/MIMIC-CXR \
+  --mimic-metadata data/MIMIC-CXR/mimic-cxr-2.1.0-metadata.csv.gz \
+  --mimic-split data/MIMIC-CXR/mimic-cxr-2.1.0-split.csv.gz \
+  --mimic-reports-root data/MIMIC-CXR \
   --output-prefix chexone_mix \
   --max-samples-per-dataset 50000 \
   --data-root data

@@ -19,7 +19,7 @@ import argparse
 import json
 import random
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional
 
 import pandas as pd
 
@@ -61,6 +61,35 @@ def _build_prompt(task_name: str, with_reasoning: bool) -> str:
     if with_reasoning:
         return '<image>Write the findings for this chest X-ray. Reason step by step and put final answer in \\boxed{}.'
     return '<image>Write the findings for this chest X-ray.'
+
+
+def _candidate_files_roots(root: Path, version_hint: str = '2.1.0') -> List[Path]:
+    return [
+        root,
+        root / 'files',
+        root / version_hint,
+        root / version_hint / 'files',
+        root / f'mimic-cxr-jpg-{version_hint}',
+        root / f'mimic-cxr-jpg-{version_hint}' / f'mimic-cxr-jpg-{version_hint}.physionet.org',
+        root / f'mimic-cxr-jpg-{version_hint}' / f'mimic-cxr-jpg-{version_hint}.physionet.org' / 'files',
+        root / 'images' / f'mimic-cxr-jpg-{version_hint}',
+        root / 'images' / f'mimic-cxr-jpg-{version_hint}' / f'mimic-cxr-jpg-{version_hint}.physionet.org',
+        root / 'images' / f'mimic-cxr-jpg-{version_hint}' / f'mimic-cxr-jpg-{version_hint}.physionet.org' / 'files',
+        root / f'mimic-cxr-{version_hint}.physionet.org',
+        root / f'mimic-cxr-{version_hint}.physionet.org' / 'files',
+        root / 'data' / f'mimic-cxr-{version_hint}.physionet.org',
+        root / 'data' / f'mimic-cxr-{version_hint}.physionet.org' / 'files',
+    ]
+
+
+def _resolve_files_root(root: Path, version_hint: str = '2.1.0') -> Path:
+    """Resolve MIMIC files root across common unpacked layouts."""
+    candidates = _candidate_files_roots(root, version_hint)
+    for c in candidates:
+        if c.exists() and c.is_dir():
+            if any((c / f'p{i:02d}').exists() for i in range(10, 20)):
+                return c
+    return root
 
 
 def _to_sample(image_path: str, solution: str, dataset_name: str, task_name: str, with_reasoning: bool) -> Dict:
@@ -127,6 +156,15 @@ def _resolve_rex_image_path(row: pd.Series, data_root: Path, mimic_jpg_root: Opt
 
 def prepare_rex(args: argparse.Namespace) -> List[Dict]:
     df = _read_table(Path(args.rex_table))
+    if args.rex_image_root:
+        rex_root = Path(args.rex_image_root)
+        if not rex_root.exists():
+            part_files = sorted(rex_root.parent.glob(f'{rex_root.name}.part*'))
+            if part_files:
+                print(
+                    f'[prepare-rex][hint] {rex_root} not found, but archive parts exist '
+                    f'({part_files[0].name} ... {part_files[-1].name}). '
+                    f'Please merge/extract before running.')
     samples: List[Dict] = []
     task_name = 'Findings Generation' if args.task == 'findings' else 'Impression Generation'
     for _, row in df.iterrows():
@@ -147,22 +185,24 @@ def prepare_rex(args: argparse.Namespace) -> List[Dict]:
 def _build_mimic_image_path(mimic_jpg_root: Path, subject_id, study_id, dicom_id) -> Path:
     subject_num = str(subject_id).replace('p', '')
     study_num = str(study_id).replace('s', '')
-    base = mimic_jpg_root
-    if (mimic_jpg_root / '2.1.0').exists():
-        base = mimic_jpg_root / '2.1.0'
-    files_root = base / 'files' if (base / 'files').exists() else base
+    for files_root in _candidate_files_roots(mimic_jpg_root):
+        p = files_root / f'p{subject_num[:2]}' / f'p{subject_num}' / f's{study_num}' / f'{dicom_id}.jpg'
+        if p.exists():
+            return p
+    files_root = _resolve_files_root(mimic_jpg_root)
     return files_root / f'p{subject_num[:2]}' / f'p{subject_num}' / f's{study_num}' / f'{dicom_id}.jpg'
 
 
 def _read_mimic_report(reports_root: Path, subject_id, study_id, task: str) -> Optional[str]:
     subject_num = str(subject_id).replace('p', '')
     study_num = str(study_id).replace('s', '')
-    base = reports_root
-    if (reports_root / '2.1.0').exists():
-        base = reports_root / '2.1.0'
-    files_root = base / 'files' if (base / 'files').exists() else base
-    report_path = files_root / f'p{subject_num[:2]}' / f'p{subject_num}' / f's{study_num}.txt'
-    if not report_path.exists():
+    report_path = None
+    for files_root in _candidate_files_roots(reports_root):
+        p = files_root / f'p{subject_num[:2]}' / f'p{subject_num}' / f's{study_num}.txt'
+        if p.exists():
+            report_path = p
+            break
+    if report_path is None:
         return None
     txt = report_path.read_text(encoding='utf-8', errors='ignore')
     if task == 'findings':
@@ -240,15 +280,15 @@ def main() -> None:
     parser.add_argument('--output-prefix', type=str, default='chexone')
 
     parser.add_argument('--prepare-mimic', action='store_true')
-    parser.add_argument('--mimic-jpg-root', type=str, default='data/mimic-cxr-jpg')
-    parser.add_argument('--mimic-metadata', type=str, default='data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-metadata.csv.gz')
-    parser.add_argument('--mimic-split', type=str, default='data/mimic-cxr-jpg/2.1.0/mimic-cxr-2.1.0-split.csv.gz')
+    parser.add_argument('--mimic-jpg-root', type=str, default='data/MIMIC-CXR')
+    parser.add_argument('--mimic-metadata', type=str, default='data/MIMIC-CXR/mimic-cxr-2.1.0-metadata.csv.gz')
+    parser.add_argument('--mimic-split', type=str, default='data/MIMIC-CXR/mimic-cxr-2.1.0-split.csv.gz')
     parser.add_argument('--split', choices=['train', 'validate', 'test'], default='train')
-    parser.add_argument('--mimic-reports-root', type=str, default='data/mimic-cxr')
+    parser.add_argument('--mimic-reports-root', type=str, default='data/MIMIC-CXR')
 
     parser.add_argument('--prepare-rex', action='store_true')
-    parser.add_argument('--rex-table', type=str, default='data/ReXGradient-160K/metadata/train_metadata.csv')
-    parser.add_argument('--rex-image-root', type=str, default='data/ReXGradient-160K/deid_png')
+    parser.add_argument('--rex-table', type=str, default='data/ReXGradient/metadata/train_metadata.csv')
+    parser.add_argument('--rex-image-root', type=str, default='data/ReXGradient/deid_png')
 
     args = parser.parse_args()
     random.seed(args.seed)
