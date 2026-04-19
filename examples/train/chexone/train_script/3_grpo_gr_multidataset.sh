@@ -29,6 +29,7 @@ echo "Detected ${NUM_GPUS} GPUs. Setting WORLD_SIZE=${WORLD_SIZE}"
 : "${VINDR_CXR_JSON:?Please set VINDR_CXR_JSON.}"
 
 per_device_train_batch_size=8
+LOSS_TYPE=${LOSS_TYPE:-grpo}  # set to dr_grpo for Dr. GRPO
 
 MAX_PIXELS=262144 \
 NPROC_PER_NODE="${NUM_GPUS}" \
@@ -83,4 +84,5 @@ swift rlhf \
     --dataloader_drop_last true \
     --freeze_llm False \
     --freeze_vit True \
-    --freeze_aligner False
+    --freeze_aligner False \
+    --loss_type "${LOSS_TYPE}"

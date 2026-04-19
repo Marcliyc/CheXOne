@@ -11,6 +11,7 @@ echo "Detected ${NUM_GPUS} GPUs. Setting WORLD_SIZE=${WORLD_SIZE}"
 
 : "${CKPT_PATH:?Please set CKPT_PATH to a model/checkpoint.}"
 : "${TRAIN_JSON:?Please set TRAIN_JSON to your GRPO JSON/JSONL dataset.}"
+LOSS_TYPE=${LOSS_TYPE:-grpo}  # set to dr_grpo for Dr. GRPO
 
 # Default behavior: only GRIT format reward is optimized.
 # Optional rewards (counting/iou/giou) can be enabled by extending reward_funcs + reward_weights.
@@ -42,4 +43,5 @@ swift rlhf \
     --temperature 1.0 \
     --system "${SYSTEM_PROMPT}" \
     --report_to wandb \
-    --run_name chexone_grit_format_only
+    --run_name chexone_grit_format_only \
+    --loss_type "${LOSS_TYPE}"

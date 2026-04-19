@@ -235,6 +235,12 @@ For GRPO-GR training using **MIMIC-CXR**, **CheXpert-Plus**, **RexGradient-160K*
 
 [`examples/train/chexone/train_script/3_grpo_gr_multidataset.sh`](examples/train/chexone/train_script/3_grpo_gr_multidataset.sh)
 
+Use `LOSS_TYPE=dr_grpo` to switch from GRPO loss to Dr. GRPO loss:
+
+```bash
+LOSS_TYPE=dr_grpo bash examples/train/chexone/train_script/3_grpo_gr_multidataset.sh
+```
+
 The script uses external reward functions:
 
 - `external_unirg_reward`
@@ -249,6 +255,12 @@ All three are registered in:
 If you want GRIT reward to be **format-only** by default, and keep counting/IoU/GIoU as optional add-ons, use:
 
 [`examples/train/chexone/train_script/4_grit_format_optional_rewards.sh`](examples/train/chexone/train_script/4_grit_format_optional_rewards.sh)
+
+Dr. GRPO is also supported in this script:
+
+```bash
+LOSS_TYPE=dr_grpo bash examples/train/chexone/train_script/4_grit_format_optional_rewards.sh
+```
 
 In the plugin, the reward funcs are:
 
