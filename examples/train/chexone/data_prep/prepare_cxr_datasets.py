@@ -131,7 +131,8 @@ def _resolve_rex_image_path(row: pd.Series,
                             data_root: Path,
                             mimic_jpg_root: Optional[Path],
                             rex_image_root: Optional[Path],
-                            split: Optional[str] = None) -> Optional[str]:
+                            split: Optional[str] = None,
+                            uid_cache: Optional[Dict[str, Optional[str]]] = None) -> Optional[str]:
     def _try_existing(paths: List[Path]) -> Optional[str]:
         for candidate in paths:
             if candidate.exists():
@@ -171,6 +172,53 @@ def _resolve_rex_image_path(row: pd.Series,
         found = _try_existing(data_candidates)
         if found:
             return found
+
+    if rex_image_root is not None:
+        uid = _first_existing(row, [
+            'instance_uid', 'sop_instance_uid', 'sop_uid', 'dicom_uid', 'image_uid', 'uid', 'dicom_id'
+        ])
+        if uid:
+            if uid_cache is not None and uid in uid_cache:
+                return uid_cache[uid]
+
+            # Common ReX layout:
+            # <rex_root>/<patient>/<accession>/studies/<study_uid>/series/<series_uid>/instances/<instance_uid>.png
+            study_uid = _first_existing(row, ['study_uid', 'study_instance_uid'])
+            series_uid = _first_existing(row, ['series_uid', 'series_instance_uid'])
+            patient_id = _first_existing(row, ['patient_id', 'subject_id', 'patient_uid'])
+            accession_id = _first_existing(row, ['accession_id', 'exam_id', 'encounter_id', 'visit_id'])
+            structured_candidates: List[Path] = []
+            if patient_id and accession_id and study_uid and series_uid:
+                structured_candidates.append(
+                    (rex_image_root / patient_id / accession_id / 'studies' / study_uid / 'series' / series_uid /
+                     'instances' / f'{uid}.png').resolve())
+            if study_uid and series_uid:
+                structured_candidates.append(
+                    (rex_image_root / 'studies' / study_uid / 'series' / series_uid / 'instances' /
+                     f'{uid}.png').resolve())
+            if split:
+                structured_candidates.extend([
+                    (rex_image_root / split / f'{uid}.png').resolve(),
+                    (rex_image_root / split / 'instances' / f'{uid}.png').resolve(),
+                ])
+            structured_candidates.extend([
+                (rex_image_root / f'{uid}.png').resolve(),
+                (rex_image_root / 'instances' / f'{uid}.png').resolve(),
+            ])
+            found = _try_existing(structured_candidates)
+            if found:
+                if uid_cache is not None:
+                    uid_cache[uid] = found
+                return found
+
+            # Final fallback: locate by UID filename anywhere under rex root.
+            for match in rex_image_root.rglob(f'{uid}.png'):
+                resolved = str(match.resolve())
+                if uid_cache is not None:
+                    uid_cache[uid] = resolved
+                return resolved
+            if uid_cache is not None:
+                uid_cache[uid] = None
     dicom_id = _first_existing(row, ['dicom_id'])
     subject_id = _first_existing(row, ['subject_id'])
     study_id = _first_existing(row, ['study_id'])
@@ -217,6 +265,7 @@ def prepare_rex(args: argparse.Namespace, split: str = 'train') -> List[Dict]:
                     f'({part_files[0].name} ... {part_files[-1].name}). '
                     f'Please merge/extract before running.')
     samples: List[Dict] = []
+    uid_cache: Dict[str, Optional[str]] = {}
     missing_text = 0
     missing_image = 0
     task_name = 'Findings Generation' if args.task == 'findings' else 'Impression Generation'
@@ -230,7 +279,8 @@ def prepare_rex(args: argparse.Namespace, split: str = 'train') -> List[Dict]:
             data_root=Path(args.data_root),
             mimic_jpg_root=Path(args.mimic_jpg_root) if args.mimic_jpg_root else None,
             rex_image_root=Path(args.rex_image_root) if args.rex_image_root else None,
-            split=split)
+            split=split,
+            uid_cache=uid_cache)
         if image_path is None:
             missing_image += 1
             continue
