@@ -46,7 +46,8 @@ python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
 python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
   --prepare-rex \
   --task findings \
-  --rex-table data/ReXGradient/metadata/train_metadata.csv \
+  --rex-splits train \
+  --rex-metadata-dir data/ReXGradient/metadata \
   --rex-image-root data/ReXGradient/deid_png \
   --mimic-jpg-root data/MIMIC-CXR \
   --data-root data
@@ -55,6 +56,25 @@ python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
 The script can read `parquet`, `csv`, `csv.gz`, `json`, or `jsonl` for `--rex-table`.
 If `deid_png` has not been extracted yet (only `deid_png.part*` exists), extract it first.
 
+To prepare validation/test as well:
+
+```bash
+python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
+  --prepare-rex \
+  --task findings \
+  --rex-splits train,valid,test \
+  --rex-metadata-dir data/ReXGradient/metadata \
+  --rex-image-root data/ReXGradient/deid_png \
+  --write-rex-split-files \
+  --output-prefix chexone_rex \
+  --data-root data
+```
+
+This writes:
+- `data/prepared/chexone_rex_findings_grpo_rex_train.jsonl`
+- `data/prepared/chexone_rex_findings_grpo_rex_valid.jsonl`
+- `data/prepared/chexone_rex_findings_grpo_rex_test.jsonl`
+
 ### 3) Prepare and merge both
 
 ```bash
@@ -62,7 +82,8 @@ python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
   --prepare-mimic \
   --prepare-rex \
   --task findings \
-  --rex-table data/ReXGradient/metadata/train_metadata.csv \
+  --rex-splits train,valid,test \
+  --rex-metadata-dir data/ReXGradient/metadata \
   --rex-image-root data/ReXGradient/deid_png \
   --mimic-jpg-root data/MIMIC-CXR \
   --mimic-metadata data/MIMIC-CXR/mimic-cxr-2.1.0-metadata.csv.gz \

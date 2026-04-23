@@ -92,14 +92,22 @@ def _resolve_files_root(root: Path, version_hint: str = '2.1.0') -> Path:
     return root
 
 
-def _to_sample(image_path: str, solution: str, dataset_name: str, task_name: str, with_reasoning: bool) -> Dict:
-    return {
+def _to_sample(image_path: str,
+               solution: str,
+               dataset_name: str,
+               task_name: str,
+               with_reasoning: bool,
+               dataset_split: Optional[str] = None) -> Dict:
+    sample = {
         'images': [image_path],
         'messages': [{'role': 'user', 'content': _build_prompt(task_name, with_reasoning)}],
         'solution': solution,
         'task_name': task_name,
         'dataset_name': dataset_name,
     }
+    if dataset_split is not None:
+        sample['dataset_split'] = dataset_split
+    return sample
 
 
 def _find_target_text(row: pd.Series, task: str) -> Optional[str]:
@@ -154,8 +162,26 @@ def _resolve_rex_image_path(row: pd.Series, data_root: Path, mimic_jpg_root: Opt
     return None
 
 
-def prepare_rex(args: argparse.Namespace) -> List[Dict]:
-    df = _read_table(Path(args.rex_table))
+def _resolve_rex_table_for_split(args: argparse.Namespace, split: str) -> Path:
+    if args.rex_table:
+        return Path(args.rex_table)
+    metadata_dir = Path(args.rex_metadata_dir)
+    candidates = [
+        metadata_dir / f'{split}_metadata.csv',
+        metadata_dir / f'{split}_metadata.json',
+        metadata_dir / f'{split}_metadata.jsonl',
+        metadata_dir / f'{split}_metadata.parquet',
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    raise FileNotFoundError(f'Cannot find ReXGradient metadata for split={split} in {metadata_dir}')
+
+
+def prepare_rex(args: argparse.Namespace, split: str = 'train') -> List[Dict]:
+    table_path = _resolve_rex_table_for_split(args, split)
+    print(f'[prepare-rex] loading split={split} from {table_path}')
+    df = _read_table(table_path)
     if args.rex_image_root:
         rex_root = Path(args.rex_image_root)
         if not rex_root.exists():
@@ -178,7 +204,14 @@ def prepare_rex(args: argparse.Namespace) -> List[Dict]:
             rex_image_root=Path(args.rex_image_root) if args.rex_image_root else None)
         if image_path is None:
             continue
-        samples.append(_to_sample(image_path, text, 'ReXGradient-160K', task_name, args.with_reasoning))
+        samples.append(
+            _to_sample(
+                image_path=image_path,
+                solution=text,
+                dataset_name='ReXGradient-160K',
+                task_name=task_name,
+                with_reasoning=args.with_reasoning,
+                dataset_split=split))
     return samples
 
 
@@ -287,8 +320,11 @@ def main() -> None:
     parser.add_argument('--mimic-reports-root', type=str, default='data/MIMIC-CXR')
 
     parser.add_argument('--prepare-rex', action='store_true')
-    parser.add_argument('--rex-table', type=str, default='data/ReXGradient/metadata/train_metadata.csv')
+    parser.add_argument('--rex-table', type=str, default=None, help='Optional explicit ReX table file path.')
+    parser.add_argument('--rex-metadata-dir', type=str, default='data/ReXGradient/metadata')
+    parser.add_argument('--rex-splits', type=str, default='train', help='Comma-separated splits, e.g. train,valid,test')
     parser.add_argument('--rex-image-root', type=str, default='data/ReXGradient/deid_png')
+    parser.add_argument('--write-rex-split-files', action='store_true', help='Write separate output files per ReX split.')
 
     args = parser.parse_args()
     random.seed(args.seed)
@@ -306,12 +342,18 @@ def main() -> None:
         all_rows.extend(mimic_rows)
 
     if args.prepare_rex:
-        rex_rows = prepare_rex(args)
-        random.shuffle(rex_rows)
-        if args.max_samples_per_dataset > 0:
-            rex_rows = rex_rows[:args.max_samples_per_dataset]
-        print(f'[prepare-rex] collected: {len(rex_rows)}')
-        all_rows.extend(rex_rows)
+        rex_splits = [s.strip() for s in args.rex_splits.split(',') if s.strip()]
+        for split in rex_splits:
+            rex_rows = prepare_rex(args, split=split)
+            random.shuffle(rex_rows)
+            if args.max_samples_per_dataset > 0:
+                rex_rows = rex_rows[:args.max_samples_per_dataset]
+            print(f'[prepare-rex] collected split={split}: {len(rex_rows)}')
+            all_rows.extend(rex_rows)
+            if args.write_rex_split_files:
+                split_out = Path(args.data_root) / 'prepared' / f'{args.output_prefix}_{args.task}_grpo_rex_{split}.jsonl'
+                write_jsonl(split_out, rex_rows)
+                print(f'[prepare-rex] wrote split file: {split_out}')
 
     random.shuffle(all_rows)
     out_name = f'{args.output_prefix}_{args.task}_grpo.jsonl'
