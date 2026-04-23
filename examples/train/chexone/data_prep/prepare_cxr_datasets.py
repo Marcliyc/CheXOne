@@ -127,25 +127,50 @@ def _find_target_text(row: pd.Series, task: str) -> Optional[str]:
     return _clean_text(text)
 
 
-def _resolve_rex_image_path(row: pd.Series, data_root: Path, mimic_jpg_root: Optional[Path],
-                            rex_image_root: Optional[Path]) -> Optional[str]:
+def _resolve_rex_image_path(row: pd.Series,
+                            data_root: Path,
+                            mimic_jpg_root: Optional[Path],
+                            rex_image_root: Optional[Path],
+                            split: Optional[str] = None) -> Optional[str]:
+    def _try_existing(paths: List[Path]) -> Optional[str]:
+        for candidate in paths:
+            if candidate.exists():
+                return str(candidate.resolve())
+        return None
+
     direct = _first_existing(
         row,
         [
             'image_path', 'image', 'path', 'img_path', 'jpg_path', 'png_path', 'dicom_path', 'filepath', 'file_path',
-            'image_file', 'image_filename'
+            'image_file', 'image_filename', 'filename', 'file_name', 'image_name', 'img_name', 'img', 'image_id', 'id'
         ])
     if direct:
         p = Path(direct)
         if p.is_absolute() and p.exists():
             return str(p)
+        rex_candidates: List[Path] = []
         if rex_image_root is not None:
-            rex_candidate = (rex_image_root / p).resolve()
-            if rex_candidate.exists():
-                return str(rex_candidate)
-        candidate = (data_root / p).resolve()
-        if candidate.exists():
-            return str(candidate)
+            split_paths = [Path(split)] if split else []
+            split_paths.append(Path(''))
+            base_names = [p]
+            if p.suffix == '':
+                base_names.extend([Path(f'{p}.png'), Path(f'{p}.jpg'), Path(f'{p}.jpeg')])
+            for split_path in split_paths:
+                for name in base_names:
+                    rex_candidates.append((rex_image_root / split_path / name).resolve())
+            found = _try_existing(rex_candidates)
+            if found:
+                return found
+        data_candidates = [(data_root / p).resolve()]
+        if p.suffix == '':
+            data_candidates.extend([
+                (data_root / f'{p}.png').resolve(),
+                (data_root / f'{p}.jpg').resolve(),
+                (data_root / f'{p}.jpeg').resolve(),
+            ])
+        found = _try_existing(data_candidates)
+        if found:
+            return found
     dicom_id = _first_existing(row, ['dicom_id'])
     subject_id = _first_existing(row, ['subject_id'])
     study_id = _first_existing(row, ['study_id'])
@@ -192,17 +217,22 @@ def prepare_rex(args: argparse.Namespace, split: str = 'train') -> List[Dict]:
                     f'({part_files[0].name} ... {part_files[-1].name}). '
                     f'Please merge/extract before running.')
     samples: List[Dict] = []
+    missing_text = 0
+    missing_image = 0
     task_name = 'Findings Generation' if args.task == 'findings' else 'Impression Generation'
     for _, row in df.iterrows():
         text = _find_target_text(row, args.task)
         if text is None:
+            missing_text += 1
             continue
         image_path = _resolve_rex_image_path(
             row=row,
             data_root=Path(args.data_root),
             mimic_jpg_root=Path(args.mimic_jpg_root) if args.mimic_jpg_root else None,
-            rex_image_root=Path(args.rex_image_root) if args.rex_image_root else None)
+            rex_image_root=Path(args.rex_image_root) if args.rex_image_root else None,
+            split=split)
         if image_path is None:
+            missing_image += 1
             continue
         samples.append(
             _to_sample(
@@ -212,6 +242,10 @@ def prepare_rex(args: argparse.Namespace, split: str = 'train') -> List[Dict]:
                 task_name=task_name,
                 with_reasoning=args.with_reasoning,
                 dataset_split=split))
+    if missing_text > 0 or missing_image > 0:
+        print(
+            f'[prepare-rex] split={split} skipped rows: '
+            f'missing_text={missing_text}, missing_image={missing_image}')
     return samples
 
 
