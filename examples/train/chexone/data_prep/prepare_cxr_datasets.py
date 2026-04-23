@@ -40,6 +40,19 @@ def _read_table(path: Path) -> pd.DataFrame:
 def _clean_text(value) -> Optional[str]:
     if value is None:
         return None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            cleaned = _clean_text(item)
+            if cleaned is not None:
+                return cleaned
+        return None
+    if isinstance(value, dict):
+        for key in ('path', 'image_path', 'ImagePath', 'image', 'value'):
+            if key in value:
+                cleaned = _clean_text(value[key])
+                if cleaned is not None:
+                    return cleaned
+        return None
     text = str(value).strip()
     if not text or text.lower() in {'nan', 'none', 'null'}:
         return None
@@ -143,7 +156,8 @@ def _resolve_rex_image_path(row: pd.Series,
         row,
         [
             'image_path', 'image', 'path', 'img_path', 'jpg_path', 'png_path', 'dicom_path', 'filepath', 'file_path',
-            'image_file', 'image_filename', 'filename', 'file_name', 'image_name', 'img_name', 'img', 'image_id', 'id'
+            'image_file', 'image_filename', 'filename', 'file_name', 'image_name', 'img_name', 'img', 'image_id', 'id',
+            'ImagePath', 'imagePath', 'Image_Path'
         ])
     if direct:
         p = Path(direct)
@@ -255,6 +269,9 @@ def prepare_rex(args: argparse.Namespace, split: str = 'train') -> List[Dict]:
     table_path = _resolve_rex_table_for_split(args, split)
     print(f'[prepare-rex] loading split={split} from {table_path}')
     df = _read_table(table_path)
+    expected_fields = {'ImagePath', 'image_path', 'image_filename', 'findings', 'impression'}
+    if expected_fields.intersection(set(df.index.astype(str))) and not expected_fields.intersection(set(df.columns)):
+        df = df.T
     if args.rex_image_root:
         rex_root = Path(args.rex_image_root)
         if not rex_root.exists():
