@@ -19,6 +19,15 @@ set -euo pipefail
 : "${CKPT_PATH:=StanfordAIMI/CheXOne}"
 : "${TRAIN_JSON:?Please set TRAIN_JSON to prepared ReXGradient-160K JSON/JSONL}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+PLUGIN_PATH="${PLUGIN_PATH:-${REPO_ROOT}/examples/train/grpo/plugin/plugin.py}"
+if [[ ! -f "${PLUGIN_PATH}" ]]; then
+  echo "[error] Plugin not found: ${PLUGIN_PATH}"
+  echo "        Set PLUGIN_PATH to your plugin.py absolute path."
+  exit 1
+fi
+
 SYSTEM_PROMPT=${SYSTEM_PROMPT:-'First, think between <think> and </think> while output necessary coordinates needed to answer the question in JSON with key "bbox_2d". Then, based on the thinking contents and coordinates, rethink between <rethink> and </rethink> and then answer the question after <answer>.'}
 
 NUM_GPUS=${NUM_GPUS:-$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)}
@@ -41,13 +50,14 @@ export TORCH_DISTRIBUTED_DEBUG=${TORCH_DISTRIBUTED_DEBUG:-OFF}
 echo "Detected ${NUM_GPUS} GPUs. WORLD_SIZE=${WORLD_SIZE}, VLLM_TP_SIZE=${VLLM_TP_SIZE}"
 echo "Model=${CKPT_PATH}"
 echo "Dataset=${TRAIN_JSON}"
+echo "Plugin=${PLUGIN_PATH}"
 
 MAX_PIXELS=${MAX_PIXELS:-262144} \
 NPROC_PER_NODE="${NUM_GPUS}" \
 swift rlhf \
   --rlhf_type grpo \
   --model "${CKPT_PATH}" \
-  --external_plugins examples/train/grpo/plugin/plugin.py \
+  --external_plugins "${PLUGIN_PATH}" \
   --reward_funcs external_grit_format_reward external_grit_reward \
   --reward_weights 1.0 0.0 \
   --dataset "${TRAIN_JSON}" \
