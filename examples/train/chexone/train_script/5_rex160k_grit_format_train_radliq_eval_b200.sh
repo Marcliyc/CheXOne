@@ -32,12 +32,21 @@ for p in \
   fi
 done
 PLUGIN_PATH="${PLUGIN_PATH:-${DEFAULT_PLUGIN_PATH}}"
-if [[ ! -f "${PLUGIN_PATH}" ]]; then
+if [[ -n "${PLUGIN_PATH}" && -f "${PLUGIN_PATH}" ]]; then
+  # canonicalize to avoid cwd-dependent relative behavior inside swift.
+  PLUGIN_PATH="$(python -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "${PLUGIN_PATH}")"
+fi
+PLUGIN_DIR="$(dirname "${PLUGIN_PATH:-/dev/null}")"
+
+if [[ ! -f "${PLUGIN_PATH}" || ! -d "${PLUGIN_DIR}" ]]; then
   echo "[error] Plugin not found: ${PLUGIN_PATH}"
   echo "[error] Tried defaults:"
   echo "        - ${REPO_ROOT}/examples/train/grpo/plugin/plugin.py"
   echo "        - $(pwd)/examples/train/grpo/plugin/plugin.py"
   echo "        - /opt/CheXOne/examples/train/grpo/plugin/plugin.py"
+  echo "[error] Resolved plugin dir: ${PLUGIN_DIR}"
+  echo "[error] If you are using Apptainer, make sure the host repo is bind-mounted."
+  echo "        Example: apptainer exec -B /vast/projects/han91/scaling-medical-im/GRIT:/vast/projects/han91/scaling-medical-im/GRIT <image>.sif bash ..."
   echo "        Set PLUGIN_PATH to your plugin.py absolute path."
   exit 1
 fi
