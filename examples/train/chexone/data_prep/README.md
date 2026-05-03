@@ -105,3 +105,4 @@ Use:
 `examples/train/chexone/train_script/6_rex160k_grit_radcliq_slurm_apptainer.sh`
 
 This script avoids common shell pitfalls (unclosed `if`/`fi`, trailing `\`) and sets robust plugin path resolution + container bind paths for host absolute paths.
+It also prefers `SLURM_SUBMIT_DIR` when resolving plugin paths under `sbatch` spool execution.

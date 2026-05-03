@@ -19,12 +19,19 @@ module load apptainer/1.4.1
 : "${TRAIN_JSON:=/vast/projects/han91/scaling-medical-im/GRIT/data/prepared/chexone_rex_findings_grpo.jsonl}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+# Under sbatch, scripts can be copied to a spool path; prefer submit dir when available.
+BASE_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
+if [[ -f "${BASE_DIR}/examples/train/grpo/plugin/plugin.py" ]]; then
+  REPO_ROOT="${BASE_DIR}"
+else
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+fi
 
 # Resolve plugin path on host first.
 DEFAULT_PLUGIN_PATH=""
 for p in \
   "${REPO_ROOT}/examples/train/grpo/plugin/plugin.py" \
+  "${BASE_DIR}/examples/train/grpo/plugin/plugin.py" \
   "$(pwd)/examples/train/grpo/plugin/plugin.py" \
   "/opt/CheXOne/examples/train/grpo/plugin/plugin.py"; do
   if [[ -f "${p}" ]]; then
@@ -42,6 +49,7 @@ if [[ ! -f "${PLUGIN_PATH}" || ! -d "${PLUGIN_DIR}" ]]; then
   echo "[error] Plugin not found: ${PLUGIN_PATH}"
   echo "[error] Tried defaults:"
   echo "        - ${REPO_ROOT}/examples/train/grpo/plugin/plugin.py"
+  echo "        - ${BASE_DIR}/examples/train/grpo/plugin/plugin.py"
   echo "        - $(pwd)/examples/train/grpo/plugin/plugin.py"
   echo "        - /opt/CheXOne/examples/train/grpo/plugin/plugin.py"
   exit 1
