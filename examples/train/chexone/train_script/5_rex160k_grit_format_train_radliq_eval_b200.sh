@@ -21,9 +21,23 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-PLUGIN_PATH="${PLUGIN_PATH:-${REPO_ROOT}/examples/train/grpo/plugin/plugin.py}"
+DEFAULT_PLUGIN_PATH=""
+for p in \
+  "${REPO_ROOT}/examples/train/grpo/plugin/plugin.py" \
+  "$(pwd)/examples/train/grpo/plugin/plugin.py" \
+  "/opt/CheXOne/examples/train/grpo/plugin/plugin.py"; do
+  if [[ -f "${p}" ]]; then
+    DEFAULT_PLUGIN_PATH="${p}"
+    break
+  fi
+done
+PLUGIN_PATH="${PLUGIN_PATH:-${DEFAULT_PLUGIN_PATH}}"
 if [[ ! -f "${PLUGIN_PATH}" ]]; then
   echo "[error] Plugin not found: ${PLUGIN_PATH}"
+  echo "[error] Tried defaults:"
+  echo "        - ${REPO_ROOT}/examples/train/grpo/plugin/plugin.py"
+  echo "        - $(pwd)/examples/train/grpo/plugin/plugin.py"
+  echo "        - /opt/CheXOne/examples/train/grpo/plugin/plugin.py"
   echo "        Set PLUGIN_PATH to your plugin.py absolute path."
   exit 1
 fi
