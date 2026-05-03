@@ -97,3 +97,11 @@ python examples/train/chexone/data_prep/prepare_cxr_datasets.py \
 Output path:
 
 `data/prepared/<output-prefix>_<task>_grpo.jsonl`
+
+## 4) Run GRIT-format RLHF on Slurm + Apptainer
+
+Use:
+
+`examples/train/chexone/train_script/6_rex160k_grit_radcliq_slurm_apptainer.sh`
+
+This script avoids common shell pitfalls (unclosed `if`/`fi`, trailing `\`) and sets robust plugin path resolution + container bind paths for host absolute paths.
