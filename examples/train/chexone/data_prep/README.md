@@ -106,3 +106,4 @@ Use:
 
 This script avoids common shell pitfalls (unclosed `if`/`fi`, trailing `\`) and sets robust plugin path resolution + container bind paths for host absolute paths.
 It also prefers `SLURM_SUBMIT_DIR` when resolving plugin paths under `sbatch` spool execution.
+For `StanfordAIMI/CheXOne`, the GRIT training scripts default `USE_HF=1`/`--use_hf` so Swift downloads from Hugging Face instead of ModelScope.

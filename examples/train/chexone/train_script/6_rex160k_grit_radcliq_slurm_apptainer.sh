@@ -59,6 +59,10 @@ SYSTEM_PROMPT=${SYSTEM_PROMPT:-'First, think between <think> and </think> while 
 
 NUM_GPUS=${NUM_GPUS:-$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)}
 export WORLD_SIZE="${NUM_GPUS}"
+USE_HF=${USE_HF:-1}
+export USE_HF
+# Preserve Hugging Face hub selection across Apptainer boundaries.
+export APPTAINERENV_USE_HF="${USE_HF}"
 VLLM_TP_SIZE=${VLLM_TP_SIZE:-${NUM_GPUS}}
 PER_DEVICE_BATCH=${PER_DEVICE_BATCH:-2}
 GRAD_ACC=${GRAD_ACC:-16}
@@ -80,6 +84,7 @@ NPROC_PER_NODE="${NUM_GPUS}" \
 apptainer exec -B "${BIND_PATHS}" "${SIF_IMAGE}" swift rlhf \
   --rlhf_type grpo \
   --model "${CKPT_PATH}" \
+  --use_hf "${USE_HF}" \
   --external_plugins "${PLUGIN_PATH}" \
   --reward_funcs external_grit_format_reward external_grit_reward \
   --reward_weights 1.0 0.0 \
