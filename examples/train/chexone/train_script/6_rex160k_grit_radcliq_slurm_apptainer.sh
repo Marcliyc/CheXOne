@@ -66,12 +66,14 @@ export APPTAINERENV_USE_HF="${USE_HF}"
 VLLM_TP_SIZE=${VLLM_TP_SIZE:-${NUM_GPUS}}
 PER_DEVICE_BATCH=${PER_DEVICE_BATCH:-2}
 GRAD_ACC=${GRAD_ACC:-16}
+MODEL_TYPE=${MODEL_TYPE:-qwen2_5_vl}
 LOSS_TYPE=${LOSS_TYPE:-grpo}
 OUTPUT_DIR=${OUTPUT_DIR:-./output/chexone-rex160k-grit-format-radcliq-monitor}
 RUN_NAME=${RUN_NAME:-chexone_rex160k_grit_format_radcliq_monitor}
 
 echo "Detected ${NUM_GPUS} GPUs. WORLD_SIZE=${WORLD_SIZE}, VLLM_TP_SIZE=${VLLM_TP_SIZE}"
 echo "Model=${CKPT_PATH}"
+echo "Model type=${MODEL_TYPE}"
 echo "Dataset=${TRAIN_JSON}"
 echo "Plugin=${PLUGIN_PATH}"
 
@@ -84,6 +86,7 @@ NPROC_PER_NODE="${NUM_GPUS}" \
 apptainer exec -B "${BIND_PATHS}" "${SIF_IMAGE}" swift rlhf \
   --rlhf_type grpo \
   --model "${CKPT_PATH}" \
+  --model_type "${MODEL_TYPE}" \
   --use_hf "${USE_HF}" \
   --external_plugins "${PLUGIN_PATH}" \
   --reward_funcs external_grit_format_reward external_grit_reward \
