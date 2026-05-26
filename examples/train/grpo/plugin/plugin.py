@@ -704,6 +704,277 @@ class GenerationWithReasonORM(ORM):
         return rewards
 orms['external_generation_with_reason_reward'] = GenerationWithReasonORM
 
+
+class GRITReportReward(ORM):
+    """GRIT-style report reward based on the RadCliQ composite metric."""
+
+    def __init__(self):
+        self.metric = CompositeMetric()
+        self.temp_list = []
+        self.max_len = 1000
+
+    @staticmethod
+    def _extract_boxed_answer(text):
+        pattern = r'(?s)(.*?)\\boxed{([^}]*)}'
+        match = re.search(pattern, text or '')
+        if match:
+            reason = match.group(1).strip() if match.group(1) else None
+            answer = match.group(2).strip() if match.group(2) else None
+            return reason, answer
+        boxed_only = re.search(r'\\boxed{([^}]*)}', text or '')
+        if boxed_only:
+            return None, boxed_only.group(1).strip()
+        text = (text or '').strip()
+        return (text if text else None), None
+
+    def __call__(self, infer_requests: List[Union['InferRequest', Dict]], **kwargs) -> List[float]:
+        ground_truths = kwargs['solution']
+        task_names = kwargs.get('task_name', [''] * len(infer_requests))
+        rewards = []
+        for prediction, ground_truth, task_name in zip(infer_requests, ground_truths, task_names):
+            _, prediction_boxed = self._extract_boxed_answer(prediction)
+            if 'Impression Generation' in task_name or 'Findings Generation' in task_name:
+                if prediction_boxed:
+                    reward = float(self.metric.predict(refs=[ground_truth], hyps=[prediction_boxed])[0])
+                else:
+                    reward = 0.0
+                self.temp_list.append(reward)
+                if len(self.temp_list) > self.max_len:
+                    self.temp_list.pop(0)
+            else:
+                reward = sum(self.temp_list) / len(self.temp_list) if self.temp_list else 0.0
+            rewards.append(reward)
+        return rewards
+
+
+class UniRGReportReward(ORM):
+    """UniRG-style reward using report quality proxy from ROUGE-1."""
+
+    def __init__(self):
+        self.metric = CompositeMetric()
+        self.temp_list = []
+        self.max_len = 1000
+
+    @staticmethod
+    def _extract_boxed_answer(text):
+        match = re.search(r'\\boxed{([^}]*)}', text or '')
+        if match:
+            return match.group(1).strip()
+        text = (text or '').strip()
+        return text if text else None
+
+    def __call__(self, infer_requests: List[Union['InferRequest', Dict]], **kwargs) -> List[float]:
+        ground_truths = kwargs['solution']
+        task_names = kwargs.get('task_name', [''] * len(infer_requests))
+        rewards = []
+        for prediction, ground_truth, task_name in zip(infer_requests, ground_truths, task_names):
+            prediction_text = self._extract_boxed_answer(prediction)
+            if 'Impression Generation' in task_name or 'Findings Generation' in task_name:
+                if prediction_text:
+                    reward = float(self.metric.predict_rouge1(refs=[ground_truth], hyps=[prediction_text])[0])
+                else:
+                    reward = 0.0
+                self.temp_list.append(reward)
+                if len(self.temp_list) > self.max_len:
+                    self.temp_list.pop(0)
+            else:
+                reward = sum(self.temp_list) / len(self.temp_list) if self.temp_list else 0.0
+            rewards.append(reward)
+        return rewards
+
+
+class GRPOGRReward(ORM):
+    """Combine UniRG + GRIT rewards for GRPO-GR."""
+
+    def __init__(self):
+        self.unirg = UniRGReportReward()
+        self.grit = GRITReportReward()
+        self.unirg_weight = float(os.getenv('UNIRG_WEIGHT', 0.5))
+        self.grit_weight = float(os.getenv('GRIT_WEIGHT', 0.5))
+        total = self.unirg_weight + self.grit_weight
+        if total <= 0:
+            self.unirg_weight, self.grit_weight = 0.5, 0.5
+        else:
+            self.unirg_weight /= total
+            self.grit_weight /= total
+
+    def __call__(self, infer_requests: List[Union['InferRequest', Dict]], **kwargs) -> List[float]:
+        unirg_scores = self.unirg(infer_requests, **kwargs)
+        grit_scores = self.grit(infer_requests, **kwargs)
+        return [
+            self.unirg_weight * u + self.grit_weight * g
+            for u, g in zip(unirg_scores, grit_scores)
+        ]
+
+
+orms['external_grit_reward'] = GRITReportReward
+orms['external_unirg_reward'] = UniRGReportReward
+orms['external_grpo_gr_reward'] = GRPOGRReward
+
+
+class GRITFormatReward(ORM):
+    """GRIT format-only reward.
+
+    Required tags:
+    - <think>...</think>
+    - JSON with key bbox_2d or a <|box|>...</|box|> style region snippet
+    - <rethink>...</rethink>
+    - <answer>...</answer> or \\boxed{...}
+    """
+
+    def __call__(self, completions, **kwargs) -> List[float]:
+        rewards = []
+        for content in completions:
+            text = content or ''
+            has_think = ('<think>' in text and '</think>' in text)
+            has_rethink = ('<rethink>' in text and '</rethink>' in text)
+            has_answer = ('<answer>' in text and '</answer>' in text) or ('\\boxed{' in text and '}' in text)
+            has_bbox = ('bbox_2d' in text) or ('<|box|>' in text and '<|/box|>' in text)
+            score = float(sum([has_think, has_rethink, has_answer, has_bbox])) / 4.0
+            rewards.append(score)
+        return rewards
+
+
+class GRITCountingReward(ORM):
+    """Optional counting reward: compare number of predicted bboxes with numeric answer."""
+
+    @staticmethod
+    def _extract_bbox_count(text: str) -> int:
+        if not text:
+            return 0
+        pattern = r'\b\d+,\s*\d+,\s*\d+,\s*\d+\b'
+        return len(re.findall(pattern, text))
+
+    @staticmethod
+    def _extract_int(solution: str) -> Optional[int]:
+        if solution is None:
+            return None
+        nums = re.findall(r'\d+', str(solution))
+        return int(nums[0]) if nums else None
+
+    def __call__(self, completions, **kwargs) -> List[float]:
+        solutions = kwargs.get('solution', [''] * len(completions))
+        rewards = []
+        for completion, sol in zip(completions, solutions):
+            target = self._extract_int(sol)
+            if target is None:
+                rewards.append(0.0)
+                continue
+            pred = self._extract_bbox_count(completion)
+            rewards.append(1.0 / (1.0 + abs(target - pred)))
+        return rewards
+
+
+class _BBoxUtils:
+    @staticmethod
+    def extract_boxes(text: str) -> List[tuple]:
+        if not text:
+            return []
+        matches = re.findall(r'\b\d+,\s*\d+,\s*\d+,\s*\d+\b', text)
+        boxes = []
+        for m in matches:
+            vals = [float(v.strip()) for v in m.split(',')]
+            x1, y1, x2, y2 = vals
+            xmin, xmax = min(x1, x2), max(x1, x2)
+            ymin, ymax = min(y1, y2), max(y1, y2)
+            if xmax > xmin and ymax > ymin:
+                boxes.append((xmin, ymin, xmax, ymax))
+        return boxes
+
+    @staticmethod
+    def iou(a: tuple, b: tuple) -> float:
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+        inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+        union = area_a + area_b - inter
+        if union <= 0:
+            return 0.0
+        return inter / union
+
+    @staticmethod
+    def giou(a: tuple, b: tuple) -> float:
+        iou_val = _BBoxUtils.iou(a, b)
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        cx1, cy1 = min(ax1, bx1), min(ay1, by1)
+        cx2, cy2 = max(ax2, bx2), max(ay2, by2)
+        c_area = max(0.0, cx2 - cx1) * max(0.0, cy2 - cy1)
+        if c_area <= 0:
+            return iou_val
+        inter_iou = iou_val
+        # recover union from iou + areas
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+        # inter = iou * union => union = (area_a+area_b)/(1+iou) when iou != -1
+        union = (area_a + area_b) / (1.0 + inter_iou + 1e-12)
+        return inter_iou - (c_area - union) / (c_area + 1e-12)
+
+
+class GRITIOUReward(ORM):
+    """Optional IoU reward. Expects `bboxs` in dataset kwargs."""
+
+    def __call__(self, completions, **kwargs) -> List[float]:
+        targets = kwargs.get('bboxs', [None] * len(completions))
+        rewards = []
+        for completion, gt_boxes in zip(completions, targets):
+            pred = _BBoxUtils.extract_boxes(completion)
+            if not pred or not gt_boxes:
+                rewards.append(0.0)
+                continue
+            gt = []
+            for box in gt_boxes:
+                if len(box) != 4:
+                    continue
+                x1, y1, x2, y2 = [float(v) for v in box]
+                xmin, xmax = min(x1, x2), max(x1, x2)
+                ymin, ymax = min(y1, y2), max(y1, y2)
+                if xmax > xmin and ymax > ymin:
+                    gt.append((xmin, ymin, xmax, ymax))
+            if not gt:
+                rewards.append(0.0)
+                continue
+            best = max(_BBoxUtils.iou(p, g) for p in pred for g in gt)
+            rewards.append(float(best))
+        return rewards
+
+
+class GRITGIOUReward(ORM):
+    """Optional GIoU reward. Expects `bboxs` in dataset kwargs."""
+
+    def __call__(self, completions, **kwargs) -> List[float]:
+        targets = kwargs.get('bboxs', [None] * len(completions))
+        rewards = []
+        for completion, gt_boxes in zip(completions, targets):
+            pred = _BBoxUtils.extract_boxes(completion)
+            if not pred or not gt_boxes:
+                rewards.append(0.0)
+                continue
+            gt = []
+            for box in gt_boxes:
+                if len(box) != 4:
+                    continue
+                x1, y1, x2, y2 = [float(v) for v in box]
+                xmin, xmax = min(x1, x2), max(x1, x2)
+                ymin, ymax = min(y1, y2), max(y1, y2)
+                if xmax > xmin and ymax > ymin:
+                    gt.append((xmin, ymin, xmax, ymax))
+            if not gt:
+                rewards.append(0.0)
+                continue
+            best = max(_BBoxUtils.giou(p, g) for p in pred for g in gt)
+            rewards.append(float(best))
+        return rewards
+
+
+orms['external_grit_format_reward'] = GRITFormatReward
+orms['external_grit_counting_reward'] = GRITCountingReward
+orms['external_grit_iou_reward'] = GRITIOUReward
+orms['external_grit_giou_reward'] = GRITGIOUReward
+
 class Format_boxed(ORM):
 
     def __call__(self, completions, **kwargs) -> List[float]:

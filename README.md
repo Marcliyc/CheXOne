@@ -195,6 +195,16 @@ print(output_text)
   - [📊 CheXinstruct-v2](链接A)
   - [🧠 CheXReason](链接B)
 
+### Preparing local MIMIC-CXR / ReXGradient-160K for SWIFT training
+
+If you already downloaded raw datasets under `data/`, use:
+
+[`examples/train/chexone/data_prep/prepare_cxr_datasets.py`](examples/train/chexone/data_prep/prepare_cxr_datasets.py)
+
+Usage details and examples are in:
+
+[`examples/train/chexone/data_prep/README.md`](examples/train/chexone/data_prep/README.md)
+
 ## 🏋️ Train
 
 ### 1. Instruction Tuning
@@ -218,6 +228,46 @@ To ensure strong learning signals for GRPO, we filter out low-variance samples. 
 See: [`examples/train/chexone/train_script/2_grpo.sh`](examples/train/chexone/train_script/2_grpo.sh)
 
 This step further optimizes the model with the GRPO algorithm to improve reasoning capabilities and robustness.
+
+### 4. GRPO-GR with UniRG + GRIT across multi-dataset CXR data
+
+For GRPO-GR training using **MIMIC-CXR**, **CheXpert-Plus**, **RexGradient-160K**, **PadChest-GR**, and **VinDr-CXR**, use:
+
+[`examples/train/chexone/train_script/3_grpo_gr_multidataset.sh`](examples/train/chexone/train_script/3_grpo_gr_multidataset.sh)
+
+Use `LOSS_TYPE=dr_grpo` to switch from GRPO loss to Dr. GRPO loss:
+
+```bash
+LOSS_TYPE=dr_grpo bash examples/train/chexone/train_script/3_grpo_gr_multidataset.sh
+```
+
+The script uses external reward functions:
+
+- `external_unirg_reward`
+- `external_grit_reward`
+- `external_grpo_gr_reward` (weighted UniRG+GRIT)
+
+All three are registered in:
+[`examples/train/grpo/plugin/plugin.py`](examples/train/grpo/plugin/plugin.py)
+
+### 5. GRIT format-only training (+ optional counting/IoU/GIoU rewards)
+
+If you want GRIT reward to be **format-only** by default, and keep counting/IoU/GIoU as optional add-ons, use:
+
+[`examples/train/chexone/train_script/4_grit_format_optional_rewards.sh`](examples/train/chexone/train_script/4_grit_format_optional_rewards.sh)
+
+Dr. GRPO is also supported in this script:
+
+```bash
+LOSS_TYPE=dr_grpo bash examples/train/chexone/train_script/4_grit_format_optional_rewards.sh
+```
+
+In the plugin, the reward funcs are:
+
+- `external_grit_format_reward` (default GRIT reward)
+- `external_grit_counting_reward` (optional)
+- `external_grit_iou_reward` (optional, requires `bboxs` in dataset)
+- `external_grit_giou_reward` (optional, requires `bboxs` in dataset)
 
 
 ## 🧪 Inference
